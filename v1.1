@@ -1,0 +1,168 @@
+#include <Arduino.h>
+#include <array>
+#include <iostream>
+#include <Adafruit_NeoPixel.h> // Include Adafruit NeoPixel library
+#include <Wire.h> // Include Wire library for I2C
+#include <SPI.h> // Include SPI library for I2C
+#include <RotaryEncoder.h> // Include RotaryEncoder library for encoder
+#include <Adafruit_I2CDevice.h> // Include Busio library for I2C
+
+
+// Define the GPIO Pins
+#define ENC_A 21 // Clock (clk) output of KC 040 Rotary Encoder 
+#define ENC_B 5 // DT output of KC 040 Rotary Encoder 
+#define PIN_WS2812B  26   // ESP32 pin that connects to WS2812B
+#define NUM_PIXELS 16  // The number of LEDs (pixels) on WS2812B
+
+/////////////////////////////////////////////////////////////////////////
+//Define and calculate constants//
+/////////////////////////////////////////////////////////////////////////
+
+// Constants for the filament
+const int FILAMENT_LENGTH = 320; // Set the length of the filament in m. 1kg spool of PLA is 320m.
+
+// Constants for the rotary encoder
+const float WHEEL_CIRCUMFERENCE = 0.0785; // Set the circumference of the wheel in m //0.0785
+const int STEPS_PER_ROTATION = 20; // Set the number of steps per rotation of the encoder
+
+// Constants for the percentage readout
+const int PERCENTAGE_STEPS = 16; // Sets the increments for percentage e.g. 11 would be every 10% of the filament
+
+//Calculate constants
+float STEPS_PER_M = FILAMENT_LENGTH/((FILAMENT_LENGTH/ WHEEL_CIRCUMFERENCE )* STEPS_PER_ROTATION); // Calculate the number of steps per meter
+float STEPS_PER_PERCENT = ((FILAMENT_LENGTH/ WHEEL_CIRCUMFERENCE)* STEPS_PER_ROTATION)/STEPS_PER_ROTATION; // Calculate the number of steps per percent of the filament.
+
+/////////////////////////////////////////////////////////////////////////
+//Define global variables//
+/////////////////////////////////////////////////////////////////////////
+
+// Intialize loop variables
+volatile int counter = 0; // Set counter to 0 ready for overwrite
+int last_perc = 0; // Set the last percentage of the filament to 0
+float current_length = 0; // Set the current length of the filament to 0.//If starting a used filament, set to the length of the filament. 
+
+/////////////////////////////////////////////////////////////////////////
+//Setup//
+/////////////////////////////////////////////////////////////////////////
+
+// Create arrays to store the percentage and steps of the filament
+int percent_array [ (PERCENTAGE_STEPS + 1) ]; // Create an array to store the percentage of the filament. The +1 is to include 100%
+int steps_array [ (STEPS_PER_ROTATION + 1) ]; // Create an array to store the steps of the filament. The +1 is to include 100%
+
+// Setup the WS2812B 16 LED Circular Display
+uint16_t count = 0; // Set the count for the WS2812 display to 0
+Adafruit_NeoPixel WS2812B(NUM_PIXELS, PIN_WS2812B, NEO_GRB + NEO_KHZ800);
+
+/////////////////////////////////////////////////////////////////////////
+//Function to read the encoder//
+/////////////////////////////////////////////////////////////////////////
+
+void read_encoder() {
+  // Encoder interrupt routine for both pins. Updates counter
+  // if they are valid and have rotated a full indent
+  
+  static uint8_t old_AB = 3;  // Lookup table index
+  static int8_t encval = 0;   // Encoder value  
+  static const int8_t enc_states[]  = {0,-1,1,0,1,0,0,-1,-1,0,0,1,0,1,-1,0}; // Lookup table
+  static unsigned long lastInterruptTime = 0;
+  unsigned long interruptTime = millis();
+   
+  old_AB <<=2;  // Remember previous state
+   
+  if (digitalRead(ENC_A)) old_AB |= 0x02; // Add current state of pin A
+  if (digitalRead(ENC_B)) old_AB |= 0x01; // Add current state of pin B
+   
+  encval += enc_states[( old_AB & 0x0f )];
+ 
+  // Update counter if encoder has rotated a full indent, that is at least 4 steps
+  if( encval > 3 ) {                                    // Four steps forward
+    counter++;
+    encval = 0;
+    lastInterruptTime = millis();                       // Remember time
+  }
+  else if( encval < -3 ) {                              // Four steps backwards
+    counter--;
+    encval = 0;
+    lastInterruptTime = millis();                       // Remember time
+  }
+}
+
+
+/////////////////////////////////////////////////////////////////////////
+//Funtion to setup the filament//
+/////////////////////////////////////////////////////////////////////////
+
+void setup() {
+ 
+  // Set encoder pins and attach interrupts
+  pinMode(ENC_A, INPUT_PULLUP);
+  pinMode(ENC_B, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENC_A), read_encoder, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(ENC_B), read_encoder, CHANGE);
+
+  // Start the serial monitor to show output
+  Serial.begin(9600); // Change to 9600 for Nano, 115200 for ESP32
+  delay(100);           // Wait for serial to start 
+  
+  steps_array[0] = 0; // Set the first element of the steps array to 0
+  for (int i = 1; i < (STEPS_PER_ROTATION + 1); i++) { // Loop through the array and set the steps per percent of the filament
+    steps_array[i] = steps_array[i-1] + STEPS_PER_PERCENT;
+  }
+  /*for (int i = 0; i < (steps + 1); i++) {
+    Serial.println(steps_array[i]);
+  }*/
+
+
+  for (int i = 0; i < (PERCENTAGE_STEPS + 1); i++) { // Loop through the array and set percentage increments
+    percent_array[i] = ((float)i/PERCENTAGE_STEPS)* 100;
+  }
+  /*for (int i = 0; i < (steps + 1); i++) {
+    Serial.println(percent_array[i]);
+  }*/
+ 
+  Serial.println("Start");
+
+  
+  WS2812B.begin();  // initialize WS2812B strip object
+  WS2812B.clear();  // set all pixel colors to 'off'. It only takes effect if pixels.show() is called
+  WS2812B.show();  
+  WS2812B.fill(WS2812B.Color(0, 255, 0), 0, NUM_PIXELS); // Set the pixel to GREEN
+  WS2812B.setBrightness(10) ; // Set the brightness of the WS2812B
+  WS2812B.show();  
+}
+ 
+void loop() {
+
+  static int lastCounter = 0;
+ 
+  // If count has changed print the new value to serial
+  if(counter != lastCounter){
+    Serial.println(counter);
+    current_length = counter * STEPS_PER_M; // Calculate the current length of the filament
+    Serial.println(current_length);
+    lastCounter = counter;
+    
+    // Calculate and print percentage
+    for (int i = 0; i < PERCENTAGE_STEPS; i++) { 
+        if (counter >= steps_array[i] && counter < steps_array[i+1]) {
+            int current_perc =  percent_array[i]; 
+            if (current_perc != last_perc) {
+                count++;
+                Serial.println(String(current_perc) + "%"); 
+                uint32_t rgbcolor = WS2812B.ColorHSV(0); // Set the color to red
+                WS2812B.fill(rgbcolor, 0, count); //
+                WS2812B.show(); // Show the pixel
+                last_perc = current_perc; 
+            }
+        }
+    }
+    // Handle the last step separately
+    if (counter >= steps_array[PERCENTAGE_STEPS]) { 
+      Serial.println(String(100) + "%"); 
+        uint32_t rgbcolor = WS2812B.ColorHSV(0); // Set the color to red
+        WS2812B.fill(rgbcolor, 0, NUM_PIXELS); //
+        WS2812B.show(); // Show the pixel
+    }
+  }
+}
+
