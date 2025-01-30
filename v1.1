@@ -18,6 +18,13 @@
 //Define and calculate constants//
 /////////////////////////////////////////////////////////////////////////
 
+// Adjustment Factor for Manufacturing Tolerances
+const float LENGTH_ADJUSTMENT_FACTOR = 1.50; /*  1.0 means no adjustment. 
+                                            //  > 1.0 means actual length is likely longer than read.
+                                            //  < 1.0 means actual length is likely shorter than read.
+                                            // Example: 0.98 would correct for a case where the system reads 2% longer than reality.
+                                            */
+
 // Constants for the filament
 const int FILAMENT_LENGTH = 320; // Set the length of the filament in m. 1kg spool of PLA is 320m.
 
@@ -138,7 +145,7 @@ void loop() {
   // If count has changed print the new value to serial
   if(counter != lastCounter){
     Serial.println(counter);
-    current_length = counter * STEPS_PER_M; // Calculate the current length of the filament
+    current_length = counter * STEPS_PER_M * LENGTH_ADJUSTMENT_FACTOR; // Calculate the current length of the filament
     Serial.println(current_length);
     lastCounter = counter;
     
