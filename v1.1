@@ -19,7 +19,7 @@
 /////////////////////////////////////////////////////////////////////////
 
 // Adjustment Factor for Manufacturing Tolerances
-const float LENGTH_ADJUSTMENT_FACTOR = 1.50; /*  1.0 means no adjustment. 
+const float LENGTH_ADJUSTMENT_FACTOR = 1.00; /*  1.0 means no adjustment. 
                                             //  > 1.0 means actual length is likely longer than read.
                                             //  < 1.0 means actual length is likely shorter than read.
                                             // Example: 0.98 would correct for a case where the system reads 2% longer than reality.
@@ -27,7 +27,7 @@ const float LENGTH_ADJUSTMENT_FACTOR = 1.50; /*  1.0 means no adjustment.
 
 // Constants for the filament
 const int FILAMENT_LENGTH = 320; // Set the length of the filament in m. 1kg spool of PLA is 320m.
-
+const int FILAMENT_WEIGHT = 1000; // Set the weight of the filament in g. 1kg spool of PLA is 1000g.
 // Constants for the rotary encoder
 const float WHEEL_CIRCUMFERENCE = 0.0785; // Set the circumference of the wheel in m //0.0785
 const int STEPS_PER_ROTATION = 20; // Set the number of steps per rotation of the encoder
@@ -38,7 +38,7 @@ const int PERCENTAGE_STEPS = 16; // Sets the increments for percentage e.g. 11 w
 //Calculate constants
 float STEPS_PER_M = FILAMENT_LENGTH/((FILAMENT_LENGTH/ WHEEL_CIRCUMFERENCE )* STEPS_PER_ROTATION); // Calculate the number of steps per meter
 float STEPS_PER_PERCENT = ((FILAMENT_LENGTH/ WHEEL_CIRCUMFERENCE)* STEPS_PER_ROTATION)/STEPS_PER_ROTATION; // Calculate the number of steps per percent of the filament.
-
+float GRAMS_OF_FILAMENT_USED = FILAMENT_WEIGHT/FILAMENT_LENGTH; // Calculate the grams of filament used per meter
 /////////////////////////////////////////////////////////////////////////
 //Define global variables//
 /////////////////////////////////////////////////////////////////////////
@@ -47,6 +47,7 @@ float STEPS_PER_PERCENT = ((FILAMENT_LENGTH/ WHEEL_CIRCUMFERENCE)* STEPS_PER_ROT
 volatile int counter = 0; // Set counter to 0 ready for overwrite
 int last_perc = 0; // Set the last percentage of the filament to 0
 float current_length = 0; // Set the current length of the filament to 0.//If starting a used filament, set to the length of the filament. 
+float current_weight = 0; // Set the current weight of the filament to 0.//If starting a used filament, set to the weight of the filament.
 
 /////////////////////////////////////////////////////////////////////////
 //Setup//
@@ -88,7 +89,7 @@ void read_encoder() {
     lastInterruptTime = millis();                       // Remember time
   }
   else if( encval < -3 ) {                              // Four steps backwards
-    counter--;
+    counter++;
     encval = 0;
     lastInterruptTime = millis();                       // Remember time
   }
@@ -146,7 +147,8 @@ void loop() {
   if(counter != lastCounter){
     Serial.println(counter);
     current_length = counter * STEPS_PER_M * LENGTH_ADJUSTMENT_FACTOR; // Calculate the current length of the filament
-    Serial.println(current_length);
+    current_weight = current_length * GRAMS_OF_FILAMENT_USED; // Calculate the current weight of the filament
+    Serial.println(String(current_weight) + "g"); // Print the current weight of the filament
     lastCounter = counter;
     
     // Calculate and print percentage
